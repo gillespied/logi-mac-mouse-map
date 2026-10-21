@@ -6,12 +6,19 @@ import logging
 import threading
 
 import rumps
-from AppKit import NSApplication, NSApplicationActivationPolicyAccessory, NSImage
+from AppKit import (
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSImage,
+    NSImageSymbolConfiguration,
+)
+from Foundation import NSTimer
 
 from logi_mouse_map.config import Config, load_config, save_config
 from logi_mouse_map.hidpp import ButtonListener
 from logi_mouse_map.keys import Combo, ShortcutError, parse_combo, send_combo
-from logi_mouse_map.recorder import ShortcutRecorder
+from logi_mouse_map.panel import HudPanel, panel_text
+from logi_mouse_map.recorder import TIMEOUT_S, Outcome, RecordResult, ShortcutRecorder
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +40,19 @@ ICON_DISABLED = "pause.circle"
 ICON_RECORDING = "record.circle"
 APP_NAME = "Logi Mouse Map"
 UI_REFRESH_S = 1.0
+RECORDING_TITLE = " Press keys…"
+APP_ICON_SIZE = 128
+TOAST_SECONDS = 2.5
+
+
+def describe_recording(result: RecordResult) -> tuple[str, str] | None:
+    """Return the (title, message) to show for a recording result, or None for no alert."""
+    if result.outcome is Outcome.CAPTURED and result.combo is not None:
+        combo = result.combo
+        return "Shortcut set", f"The thumb button now sends {combo.display()}  ({combo})"
+    if result.outcome is Outcome.TIMED_OUT:
+        return "Recording timed out", "No key was pressed. The shortcut is unchanged."
+    return None
 
 
 def _symbol(name: str) -> NSImage | None:
@@ -40,6 +60,24 @@ def _symbol(name: str) -> NSImage | None:
     if image is not None:
         image.setTemplate_(True)
     return image
+
+
+def _app_icon() -> NSImage | None:
+    """Return the large mouse symbol used for the app icon and dialogs."""
+    image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(ICON_CONNECTED, APP_NAME)
+    if image is None:
+        return None
+    config = NSImageSymbolConfiguration.configurationWithPointSize_weight_(APP_ICON_SIZE, 5)
+    image = image.imageWithSymbolConfiguration_(config)
+    image.setTemplate_(False)
+    return image
+
+
+def _set_app_icon() -> None:
+    """Use the mouse symbol as the app icon so dialogs don't show a generic folder."""
+    image = _app_icon()
+    if image is not None:
+        NSApplication.sharedApplication().setApplicationIconImage_(image)
 
 
 class MouseMapApp(rumps.App):
@@ -53,6 +91,8 @@ class MouseMapApp(rumps.App):
         self._lock = threading.Lock()
         self._recorder: ShortcutRecorder | None = None
         self._recording = False
+        self._panel: HudPanel | None = None
+        self._toast_timer: NSTimer | None = None
 
         self._status_item = rumps.MenuItem("Mouse: searching…")
         self._shortcut_item = rumps.MenuItem("")
@@ -95,6 +135,7 @@ class MouseMapApp(rumps.App):
         NSApplication.sharedApplication().setActivationPolicy_(
             NSApplicationActivationPolicyAccessory
         )
+        _set_app_icon()
         self._listener.start()
         self._refresh_timer.start()
         super().run(**options)
@@ -130,16 +171,18 @@ class MouseMapApp(rumps.App):
         for item in self._presets_menu.values():
             item.state = item._combo_str == str(combo)  # type: ignore[attr-defined]
 
+        title = ""
         if recording:
             symbol = ICON_RECORDING
+            title = RECORDING_TITLE
         elif not enabled:
             symbol = ICON_DISABLED
         else:
             symbol = ICON_CONNECTED if connected else ICON_DISCONNECTED
-        self._set_icon(symbol)
+        self._set_icon(symbol, title)
 
-    def _set_icon(self, symbol: str) -> None:
-        if getattr(self, "_current_symbol", None) == symbol:
+    def _set_icon(self, symbol: str, title: str = "") -> None:
+        if getattr(self, "_current_icon", None) == (symbol, title):
             return
         nsapp = getattr(self, "_nsapp", None)
         status_item = getattr(nsapp, "nsstatusitem", None)
@@ -148,11 +191,11 @@ class MouseMapApp(rumps.App):
         button = status_item.button()
         image = _symbol(symbol)
         if image is None:
-            button.setTitle_("Mouse")
+            button.setTitle_(title or "Mouse")
         else:
-            button.setTitle_("")
+            button.setTitle_(title)
             button.setImage_(image)
-        self._current_symbol = symbol
+        self._current_icon = (symbol, title)
 
     def _set_combo(self, combo: Combo) -> None:
         with self._lock:
@@ -182,33 +225,62 @@ class MouseMapApp(rumps.App):
             cancel="Cancel",
             dimensions=(260, 24),
         )
+        icon = _app_icon()
+        if icon is not None:
+            window._alert.setIcon_(icon)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         response = window.run()
         if not response.clicked:
             return
         try:
             self._set_combo(parse_combo(response.text))
         except ShortcutError as exc:
-            rumps.alert("Invalid shortcut", str(exc))
+            self._show_toast("Invalid shortcut", str(exc))
 
     def _record(self, _sender) -> None:
         if self._recorder is not None:
             return
         recorder = ShortcutRecorder(self._on_recorded)
         if not recorder.start():
-            rumps.alert(
+            self._show_toast(
                 "Cannot record",
-                "Grant Accessibility access to the app running this (e.g. your terminal) in "
-                "System Settings → Privacy & Security, then restart it and try again.",
+                "Grant Accessibility to your terminal in Privacy & Security, then restart it.",
             )
             return
         self._recorder = recorder
+        self._close_panel()
+        self._panel = HudPanel(*panel_text(TIMEOUT_S))
+        self._panel.show()
         self._set_recording(True)
 
-    def _on_recorded(self, combo: Combo | None) -> None:
+    def _on_recorded(self, result: RecordResult) -> None:
         self._recorder = None
+        self._close_panel()
         self._set_recording(False)
-        if combo is not None:
-            self._set_combo(combo)
+        if result.combo is not None:
+            self._set_combo(result.combo)
+        message = describe_recording(result)
+        if message is not None:
+            self._show_toast(*message)
+
+    def _close_panel(self) -> None:
+        if self._toast_timer is not None:
+            self._toast_timer.invalidate()
+            self._toast_timer = None
+        if self._panel is not None:
+            self._panel.close()
+            self._panel = None
+
+    def _show_toast(self, headline: str, hint: str, seconds: float = TOAST_SECONDS) -> None:
+        """Show a HUD panel that closes itself after `seconds`."""
+        self._close_panel()
+        self._panel = HudPanel(headline, hint)
+        self._panel.show()
+
+        # One-shot timer: rumps.Timer fires immediately on start, which would close the toast at once.
+        self._toast_timer = NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            seconds, False, lambda _timer: self._close_panel()
+        )
 
     def _set_recording(self, recording: bool) -> None:
         with self._lock:
