@@ -82,7 +82,28 @@ uv run pytest
 uv run ruff check .
 ```
 
-## Not yet done (v2)
+## Start at login and keep alive
 
-- Launch at login and keep-alive via a LaunchAgent.
+Install the tool to a stable location, then register the LaunchAgent:
+
+```sh
+uv tool install .          # re-run after pulling changes (add --reinstall to force)
+logi-mouse-map install     # writes ~/Library/LaunchAgents/com.gillespied.logi-mouse-map.plist and starts it
+logi-mouse-map status
+logi-mouse-map uninstall
+```
+
+- It starts at login and is restarted if it crashes. **Quit** from the menu exits with
+  code 0, so it stays quit until the next login.
+- Logs go to `~/Library/Logs/logi-mouse-map.log`.
+- The menu has a **Start at login** toggle. It only adds or removes the plist, so it takes
+  effect from the next login and does not start or stop the running copy.
+  Use `install` / `uninstall` to load or unload it immediately.
+- Under launchd the permissions belong to the tool's Python binary, not your terminal.
+  `install` prints the path. Add it to **Input Monitoring** and **Accessibility**.
+  They must be granted again if the tool is reinstalled with a different Python version.
+- Stop any copy you started by hand before running `install`, or two copies will run.
+
+## Not yet done
+
 - Gestures (hold the button and move).

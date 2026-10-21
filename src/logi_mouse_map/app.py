@@ -14,6 +14,7 @@ from AppKit import (
 )
 from Foundation import NSTimer
 
+from logi_mouse_map import launchagent
 from logi_mouse_map.config import Config, load_config, save_config
 from logi_mouse_map.hidpp import ButtonListener
 from logi_mouse_map.keys import Combo, ShortcutError, parse_combo, send_combo
@@ -97,6 +98,7 @@ class MouseMapApp(rumps.App):
         self._status_item = rumps.MenuItem("Mouse: searching…")
         self._shortcut_item = rumps.MenuItem("")
         self._enabled_item = rumps.MenuItem("Enabled", callback=self._toggle_enabled)
+        self._login_item = rumps.MenuItem("Start at login", callback=self._toggle_login)
         self._presets_menu = rumps.MenuItem("Presets")
         for label, combo in PRESETS:
             item = rumps.MenuItem(f"{label}  ({parse_combo(combo).display()})")
@@ -112,6 +114,7 @@ class MouseMapApp(rumps.App):
             rumps.MenuItem("Type shortcut…", callback=self._type_custom),
             None,
             self._enabled_item,
+            self._login_item,
             None,
             rumps.MenuItem("Quit", callback=self._quit),
         ]
@@ -168,6 +171,7 @@ class MouseMapApp(rumps.App):
         else:
             self._shortcut_item.title = f"Shortcut: {combo.display()}  ({combo})"
         self._enabled_item.state = enabled
+        self._login_item.state = launchagent.is_installed()
         for item in self._presets_menu.values():
             item.state = item._combo_str == str(combo)  # type: ignore[attr-defined]
 
@@ -214,6 +218,19 @@ class MouseMapApp(rumps.App):
         with self._lock:
             self.config.enabled = not self.config.enabled
             save_config(self.config)
+        self._refresh()
+
+    def _toggle_login(self, _sender) -> None:
+        """Add or remove the LaunchAgent plist; it takes effect from the next login."""
+        try:
+            if launchagent.is_installed():
+                launchagent.remove_plist()
+                self._show_toast("Start at login off", "The app will not start at next login.")
+            else:
+                launchagent.write_plist()
+                self._show_toast("Start at login on", "The app will start at next login.")
+        except launchagent.LaunchAgentError as exc:
+            self._show_toast("Cannot enable start at login", str(exc))
         self._refresh()
 
     def _type_custom(self, _sender) -> None:
