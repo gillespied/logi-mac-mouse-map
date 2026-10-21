@@ -16,7 +16,7 @@ from AppKit import (
 from logi_mouse_map.config import Config, load_config, save_config
 from logi_mouse_map.hidpp import ButtonListener
 from logi_mouse_map.keys import Combo, ShortcutError, parse_combo, send_combo
-from logi_mouse_map.panel import RecordingPanel
+from logi_mouse_map.panel import HudPanel, panel_text
 from logi_mouse_map.recorder import TIMEOUT_S, Outcome, RecordResult, ShortcutRecorder
 
 log = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ APP_NAME = "Logi Mouse Map"
 UI_REFRESH_S = 1.0
 RECORDING_TITLE = " Press keys…"
 APP_ICON_SIZE = 128
+TOAST_SECONDS = 2.5
 
 
 def describe_recording(result: RecordResult) -> tuple[str, str] | None:
@@ -60,17 +61,22 @@ def _symbol(name: str) -> NSImage | None:
     return image
 
 
-def _set_app_icon() -> None:
-    """Use the mouse symbol as the app icon so alerts don't show a generic folder."""
-    image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-        ICON_CONNECTED, APP_NAME
-    )
+def _app_icon() -> NSImage | None:
+    """Return the large mouse symbol used for the app icon and dialogs."""
+    image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(ICON_CONNECTED, APP_NAME)
     if image is None:
-        return
+        return None
     config = NSImageSymbolConfiguration.configurationWithPointSize_weight_(APP_ICON_SIZE, 5)
     image = image.imageWithSymbolConfiguration_(config)
     image.setTemplate_(False)
-    NSApplication.sharedApplication().setApplicationIconImage_(image)
+    return image
+
+
+def _set_app_icon() -> None:
+    """Use the mouse symbol as the app icon so dialogs don't show a generic folder."""
+    image = _app_icon()
+    if image is not None:
+        NSApplication.sharedApplication().setApplicationIconImage_(image)
 
 
 class MouseMapApp(rumps.App):
@@ -84,7 +90,8 @@ class MouseMapApp(rumps.App):
         self._lock = threading.Lock()
         self._recorder: ShortcutRecorder | None = None
         self._recording = False
-        self._panel: RecordingPanel | None = None
+        self._panel: HudPanel | None = None
+        self._toast_timer: rumps.Timer | None = None
 
         self._status_item = rumps.MenuItem("Mouse: searching…")
         self._shortcut_item = rumps.MenuItem("")
@@ -217,52 +224,64 @@ class MouseMapApp(rumps.App):
             cancel="Cancel",
             dimensions=(260, 24),
         )
+        icon = _app_icon()
+        if icon is not None:
+            window._alert.setIcon_(icon)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         response = window.run()
         if not response.clicked:
             return
         try:
             self._set_combo(parse_combo(response.text))
         except ShortcutError as exc:
-            rumps.alert("Invalid shortcut", str(exc))
+            self._show_toast("Invalid shortcut", str(exc))
 
     def _record(self, _sender) -> None:
         if self._recorder is not None:
             return
         recorder = ShortcutRecorder(self._on_recorded)
         if not recorder.start():
-            rumps.alert(
+            self._show_toast(
                 "Cannot record",
-                "Grant Accessibility access to the app running this (e.g. your terminal) in "
-                "System Settings → Privacy & Security, then restart it and try again.",
+                "Grant Accessibility to your terminal in Privacy & Security, then restart it.",
             )
             return
         self._recorder = recorder
-        self._panel = RecordingPanel(TIMEOUT_S)
+        self._close_panel()
+        self._panel = HudPanel(*panel_text(TIMEOUT_S))
         self._panel.show()
         self._set_recording(True)
 
     def _on_recorded(self, result: RecordResult) -> None:
         self._recorder = None
-        if self._panel is not None:
-            self._panel.close()
-            self._panel = None
+        self._close_panel()
         self._set_recording(False)
         if result.combo is not None:
             self._set_combo(result.combo)
         message = describe_recording(result)
         if message is not None:
-            self._show_alert_soon(*message)
+            self._show_toast(*message)
 
-    def _show_alert_soon(self, title: str, message: str) -> None:
-        """Show an alert on the next run-loop tick, outside the event tap callback."""
+    def _close_panel(self) -> None:
+        if self._toast_timer is not None:
+            self._toast_timer.stop()
+            self._toast_timer = None
+        if self._panel is not None:
+            self._panel.close()
+            self._panel = None
 
-        def show(timer: rumps.Timer) -> None:
+    def _show_toast(self, headline: str, hint: str, seconds: float = TOAST_SECONDS) -> None:
+        """Show a HUD panel that closes itself after `seconds`."""
+        self._close_panel()
+        self._panel = HudPanel(headline, hint)
+        self._panel.show()
+
+        def dismiss(timer: rumps.Timer) -> None:
             timer.stop()
-            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-            rumps.alert(title, message)
+            self._close_panel()
 
-        self._alert_timer = rumps.Timer(show, 0.05)
-        self._alert_timer.start()
+        self._toast_timer = rumps.Timer(dismiss, seconds)
+        self._toast_timer.start()
 
     def _set_recording(self, recording: bool) -> None:
         with self._lock:

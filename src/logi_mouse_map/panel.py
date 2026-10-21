@@ -17,7 +17,7 @@ from AppKit import (
     NSWindowStyleMaskNonactivatingPanel,
 )
 
-PANEL_WIDTH = 340
+PANEL_WIDTH = 400
 PANEL_HEIGHT = 96
 CORNER_RADIUS = 14
 
@@ -37,11 +37,10 @@ def _label(text: str, y: float, size: float, bold: bool, alpha: float) -> NSText
     return field
 
 
-class RecordingPanel:
-    """Borderless always-on-top HUD, centred on the main screen."""
+class HudPanel:
+    """Borderless always-on-top HUD with a headline and hint, centred on the main screen."""
 
-    def __init__(self, timeout_s: float) -> None:
-        headline, hint = panel_text(timeout_s)
+    def __init__(self, headline: str, hint: str) -> None:
         self._panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, PANEL_WIDTH, PANEL_HEIGHT),
             NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel,
