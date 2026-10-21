@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 
 import Quartz
 
@@ -16,6 +18,22 @@ ESCAPE_KEYCODE = KEYCODES["escape"]
 TIMEOUT_S = 10.0
 
 
+class Outcome(Enum):
+    """How a recording attempt ended."""
+
+    CAPTURED = "captured"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+
+
+@dataclass(frozen=True)
+class RecordResult:
+    """The outcome of a recording, with the captured combo when there is one."""
+
+    outcome: Outcome
+    combo: Combo | None = None
+
+
 class ShortcutRecorder:
     """Swallows the next key-down and reports it as a Combo.
 
@@ -23,7 +41,7 @@ class ShortcutRecorder:
     Requires Accessibility permission. Esc or a timeout cancels.
     """
 
-    def __init__(self, on_done: Callable[[Combo | None], None]) -> None:
+    def __init__(self, on_done: Callable[[RecordResult], None]) -> None:
         self._on_done = on_done
         self._tap = None
         self._source = None
@@ -53,7 +71,7 @@ class ShortcutRecorder:
             0,
             0,
             0,
-            lambda _timer: self._finish(None),
+            lambda _timer: self._finish(RecordResult(Outcome.TIMED_OUT)),
         )
         Quartz.CFRunLoopAddTimer(loop, self._timer, Quartz.kCFRunLoopCommonModes)
         return True
@@ -66,7 +84,7 @@ class ShortcutRecorder:
             return event
         keycode = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
         if keycode == ESCAPE_KEYCODE:
-            self._finish(None)
+            self._finish(RecordResult(Outcome.CANCELLED))
             return None
         key = KEYCODE_TO_NAME.get(keycode)
         if key is None:
@@ -74,10 +92,10 @@ class ShortcutRecorder:
         flags = Quartz.CGEventGetFlags(event)
         # macOS sets the fn flag on arrow/function keys, so ignore it here.
         mods = tuple(m for m in MODIFIER_ORDER if m != "fn" and flags & MODIFIER_FLAGS[m])
-        self._finish(Combo(key=key, modifiers=mods))
+        self._finish(RecordResult(Outcome.CAPTURED, Combo(key=key, modifiers=mods)))
         return None
 
-    def _finish(self, combo: Combo | None) -> None:
+    def _finish(self, result: RecordResult) -> None:
         if self._tap is None:
             return
         loop = Quartz.CFRunLoopGetMain()
@@ -86,6 +104,6 @@ class ShortcutRecorder:
         Quartz.CFRunLoopTimerInvalidate(self._timer)
         self._tap = self._source = self._timer = None
         try:
-            self._on_done(combo)
+            self._on_done(result)
         except Exception:
             log.exception("error handling recorded shortcut")

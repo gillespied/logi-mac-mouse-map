@@ -11,7 +11,7 @@ from AppKit import NSApplication, NSApplicationActivationPolicyAccessory, NSImag
 from logi_mouse_map.config import Config, load_config, save_config
 from logi_mouse_map.hidpp import ButtonListener
 from logi_mouse_map.keys import Combo, ShortcutError, parse_combo, send_combo
-from logi_mouse_map.recorder import ShortcutRecorder
+from logi_mouse_map.recorder import Outcome, RecordResult, ShortcutRecorder
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +33,16 @@ ICON_DISABLED = "pause.circle"
 ICON_RECORDING = "record.circle"
 APP_NAME = "Logi Mouse Map"
 UI_REFRESH_S = 1.0
+
+
+def describe_recording(result: RecordResult) -> tuple[str, str] | None:
+    """Return the (title, message) to show for a recording result, or None for no alert."""
+    if result.outcome is Outcome.CAPTURED and result.combo is not None:
+        combo = result.combo
+        return "Shortcut set", f"The thumb button now sends {combo.display()}  ({combo})"
+    if result.outcome is Outcome.TIMED_OUT:
+        return "Recording timed out", "No key was pressed. The shortcut is unchanged."
+    return None
 
 
 def _symbol(name: str) -> NSImage | None:
@@ -204,11 +214,25 @@ class MouseMapApp(rumps.App):
         self._recorder = recorder
         self._set_recording(True)
 
-    def _on_recorded(self, combo: Combo | None) -> None:
+    def _on_recorded(self, result: RecordResult) -> None:
         self._recorder = None
         self._set_recording(False)
-        if combo is not None:
-            self._set_combo(combo)
+        if result.combo is not None:
+            self._set_combo(result.combo)
+        message = describe_recording(result)
+        if message is not None:
+            self._show_alert_soon(*message)
+
+    def _show_alert_soon(self, title: str, message: str) -> None:
+        """Show an alert on the next run-loop tick, outside the event tap callback."""
+
+        def show(timer: rumps.Timer) -> None:
+            timer.stop()
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            rumps.alert(title, message)
+
+        self._alert_timer = rumps.Timer(show, 0.05)
+        self._alert_timer.start()
 
     def _set_recording(self, recording: bool) -> None:
         with self._lock:
