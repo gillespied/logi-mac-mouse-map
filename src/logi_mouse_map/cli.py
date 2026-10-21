@@ -6,7 +6,6 @@ import argparse
 import logging
 import sys
 import time
-from pathlib import Path
 
 from logi_mouse_map.launchagent import LaunchAgentError
 
@@ -41,7 +40,7 @@ def _send(combo: str, delay: float) -> int:
 
 
 def _install() -> int:
-    from logi_mouse_map import launchagent
+    from logi_mouse_map import bundle, launchagent
 
     executable = launchagent.install()
     print(f"Installed and started LaunchAgent {launchagent.LABEL}")
@@ -49,9 +48,11 @@ def _install() -> int:
     print(f"  plist: {launchagent.PLIST_PATH}")
     print(f"  log:   {launchagent.LOG_PATH}")
     print()
-    print("Grant Input Monitoring and Accessibility to this Python binary in")
-    print("System Settings > Privacy & Security (use '+' and press Cmd+Shift+G to paste):")
-    print(f"  {Path(sys.executable).resolve()}")
+    print(f"  app:   {bundle.APP_PATH}")
+    print()
+    print("Grant Input Monitoring and Accessibility to the app in System Settings >")
+    print("Privacy & Security (click '+', choose it from ~/Applications). Then run")
+    print("'logi-mouse-map uninstall && logi-mouse-map install' to reload it.")
     return 0
 
 

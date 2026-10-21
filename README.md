@@ -99,9 +99,13 @@ logi-mouse-map uninstall
 - The menu has a **Start at login** toggle. It only adds or removes the plist, so it takes
   effect from the next login and does not start or stop the running copy.
   Use `install` / `uninstall` to load or unload it immediately.
-- Under launchd the permissions belong to the tool's Python binary, not your terminal.
-  `install` prints the path. Add it to **Input Monitoring** and **Accessibility**.
-  They must be granted again if the tool is reinstalled with a different Python version.
+- `install` builds a small app, `~/Applications/Logi Mouse Map.app`, containing a native
+  launcher that starts the tool. macOS permissions attach to this app, not to Python, so
+  they survive `uv` upgrading Python. Needs the Command Line Tools (`clang`, `codesign`).
+- Grant the app **Input Monitoring** and **Accessibility** in System Settings > Privacy &
+  Security: click `+` and choose it from `~/Applications`. Then run
+  `logi-mouse-map uninstall && logi-mouse-map install` to reload.
+- `uninstall` keeps the app so the permissions are not lost. Delete it by hand to remove it.
 - Stop any copy you started by hand before running `install`, or two copies will run.
 
 ## Not yet done
