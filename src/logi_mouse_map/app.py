@@ -12,6 +12,7 @@ from AppKit import (
     NSImage,
     NSImageSymbolConfiguration,
 )
+from Foundation import NSTimer
 
 from logi_mouse_map.config import Config, load_config, save_config
 from logi_mouse_map.hidpp import ButtonListener
@@ -91,7 +92,7 @@ class MouseMapApp(rumps.App):
         self._recorder: ShortcutRecorder | None = None
         self._recording = False
         self._panel: HudPanel | None = None
-        self._toast_timer: rumps.Timer | None = None
+        self._toast_timer: NSTimer | None = None
 
         self._status_item = rumps.MenuItem("Mouse: searching…")
         self._shortcut_item = rumps.MenuItem("")
@@ -264,7 +265,7 @@ class MouseMapApp(rumps.App):
 
     def _close_panel(self) -> None:
         if self._toast_timer is not None:
-            self._toast_timer.stop()
+            self._toast_timer.invalidate()
             self._toast_timer = None
         if self._panel is not None:
             self._panel.close()
@@ -276,12 +277,10 @@ class MouseMapApp(rumps.App):
         self._panel = HudPanel(headline, hint)
         self._panel.show()
 
-        def dismiss(timer: rumps.Timer) -> None:
-            timer.stop()
-            self._close_panel()
-
-        self._toast_timer = rumps.Timer(dismiss, seconds)
-        self._toast_timer.start()
+        # One-shot timer: rumps.Timer fires immediately on start, which would close the toast at once.
+        self._toast_timer = NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            seconds, False, lambda _timer: self._close_panel()
+        )
 
     def _set_recording(self, recording: bool) -> None:
         with self._lock:
