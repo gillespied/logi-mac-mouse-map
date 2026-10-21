@@ -90,6 +90,7 @@ Install the tool to a stable location, then register the LaunchAgent:
 uv tool install .          # re-run after pulling changes (add --reinstall to force)
 logi-mouse-map install     # writes ~/Library/LaunchAgents/com.gillespied.logi-mouse-map.plist and starts it
 logi-mouse-map status
+logi-mouse-map restart     # after reinstalling the tool or changing permissions
 logi-mouse-map uninstall
 ```
 
@@ -104,9 +105,10 @@ logi-mouse-map uninstall
   they survive `uv` upgrading Python. Needs the Command Line Tools (`clang`, `codesign`).
 - Grant the app **Input Monitoring** and **Accessibility** in System Settings > Privacy &
   Security: click `+` and choose it from `~/Applications`. Then run
-  `logi-mouse-map uninstall && logi-mouse-map install` to reload.
+  `logi-mouse-map restart`, because a running copy does not pick up new permissions.
 - `uninstall` keeps the app so the permissions are not lost. Delete it by hand to remove it.
-- Stop any copy you started by hand before running `install`, or two copies will run.
+- Only one copy can run. Starting a second one by hand exits with a message. Stop the agent
+  first (`logi-mouse-map uninstall`) if you want to run it in a terminal.
 
 ## Not yet done
 

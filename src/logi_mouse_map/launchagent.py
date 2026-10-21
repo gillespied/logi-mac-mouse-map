@@ -90,6 +90,13 @@ def install() -> Path:
     return executable
 
 
+def restart() -> None:
+    """Restart the loaded job, for example to pick up new permissions or a reinstall."""
+    if not is_loaded():
+        raise LaunchAgentError("not loaded; run 'logi-mouse-map install' first")
+    _launchctl("kickstart", "-k", _service_target())
+
+
 def uninstall() -> None:
     """Stop the loaded job, if any, and delete the plist.
 
