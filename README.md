@@ -90,6 +90,7 @@ Install the tool to a stable location, then register the LaunchAgent:
 uv tool install .          # re-run after pulling changes (add --reinstall to force)
 logi-mouse-map install     # writes ~/Library/LaunchAgents/com.gillespied.logi-mouse-map.plist and starts it
 logi-mouse-map status
+logi-mouse-map restart     # after reinstalling the tool or changing permissions
 logi-mouse-map uninstall
 ```
 
@@ -99,10 +100,15 @@ logi-mouse-map uninstall
 - The menu has a **Start at login** toggle. It only adds or removes the plist, so it takes
   effect from the next login and does not start or stop the running copy.
   Use `install` / `uninstall` to load or unload it immediately.
-- Under launchd the permissions belong to the tool's Python binary, not your terminal.
-  `install` prints the path. Add it to **Input Monitoring** and **Accessibility**.
-  They must be granted again if the tool is reinstalled with a different Python version.
-- Stop any copy you started by hand before running `install`, or two copies will run.
+- `install` builds a small app, `~/Applications/Logi Mouse Map.app`, containing a native
+  launcher that starts the tool. macOS permissions attach to this app, not to Python, so
+  they survive `uv` upgrading Python. Needs the Command Line Tools (`clang`, `codesign`).
+- Grant the app **Input Monitoring** and **Accessibility** in System Settings > Privacy &
+  Security: click `+` and choose it from `~/Applications`. Then run
+  `logi-mouse-map restart`, because a running copy does not pick up new permissions.
+- `uninstall` keeps the app so the permissions are not lost. Delete it by hand to remove it.
+- Only one copy can run. Starting a second one by hand exits with a message. Stop the agent
+  first (`logi-mouse-map uninstall`) if you want to run it in a terminal.
 
 ## Not yet done
 

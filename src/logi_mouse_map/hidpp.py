@@ -239,7 +239,7 @@ class ButtonListener(threading.Thread):
         try:
             self._target = find_target(conn, self._cid)
             if self._target is None:
-                log.info("no device with the target button found")
+                log.debug("no device with the target button found")
                 return
             self._apply_divert(conn)
             self._on_status(True)

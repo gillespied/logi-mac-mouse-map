@@ -6,7 +6,6 @@ import argparse
 import logging
 import sys
 import time
-from pathlib import Path
 
 from logi_mouse_map.launchagent import LaunchAgentError
 
@@ -41,7 +40,7 @@ def _send(combo: str, delay: float) -> int:
 
 
 def _install() -> int:
-    from logi_mouse_map import launchagent
+    from logi_mouse_map import bundle, launchagent
 
     executable = launchagent.install()
     print(f"Installed and started LaunchAgent {launchagent.LABEL}")
@@ -49,9 +48,11 @@ def _install() -> int:
     print(f"  plist: {launchagent.PLIST_PATH}")
     print(f"  log:   {launchagent.LOG_PATH}")
     print()
-    print("Grant Input Monitoring and Accessibility to this Python binary in")
-    print("System Settings > Privacy & Security (use '+' and press Cmd+Shift+G to paste):")
-    print(f"  {Path(sys.executable).resolve()}")
+    print(f"  app:   {bundle.APP_PATH}")
+    print()
+    print("Grant Input Monitoring and Accessibility to the app in System Settings >")
+    print("Privacy & Security (click '+', choose it from ~/Applications). Then run")
+    print("'logi-mouse-map restart' to reload it.")
     return 0
 
 
@@ -60,6 +61,14 @@ def _uninstall() -> int:
 
     launchagent.uninstall()
     print("LaunchAgent removed.")
+    return 0
+
+
+def _restart() -> int:
+    from logi_mouse_map import launchagent
+
+    launchagent.restart()
+    print("Restarted.")
     return 0
 
 
@@ -72,13 +81,21 @@ def _status() -> int:
 
 
 def _run() -> int:
+    from logi_mouse_map import instance
     from logi_mouse_map.app import run_app
 
+    try:
+        lock = instance.acquire()
+    except instance.AlreadyRunningError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
     run_app()
+    del lock
     return 0
 
 
-COMMANDS = {"install": _install, "uninstall": _uninstall, "status": _status}
+COMMANDS = {"install": _install, "uninstall": _uninstall, "status": _status, "restart": _restart}
 
 
 def main() -> None:
@@ -89,6 +106,7 @@ def main() -> None:
     sub.add_parser("probe", help="print thumb button events")
     sub.add_parser("install", help="start at login and keep alive (LaunchAgent)")
     sub.add_parser("uninstall", help="remove the LaunchAgent")
+    sub.add_parser("restart", help="restart the LaunchAgent copy")
     sub.add_parser("status", help="show LaunchAgent state")
     send = sub.add_parser("send", help="send a keyboard shortcut, e.g. 'ctrl+up'")
     send.add_argument("combo")
