@@ -74,6 +74,9 @@ uv run logi-mouse-map -v run         # run with debug logging
 - **Stops working after the mouse sleeps**: the divert is re-applied when the receiver
   reports a reconnect and every 60 seconds as a safety net.
 - Bluetooth connections are supported in code (device index `0xFF`) but untested.
+- **"Already running" after `restart`**: launchd takes a few seconds to bring the agent
+  back. A copy started by hand in that gap takes the lock, and the agent then retries
+  every ~10s until you quit it. Don't run it by hand while the agent is installed.
 
 ## Development
 
@@ -110,6 +113,28 @@ logi-mouse-map uninstall
 - Only one copy can run. Starting a second one by hand exits with a message. Stop the agent
   first (`logi-mouse-map uninstall`) if you want to run it in a terminal.
 
+## Design notes
+
+- The thumb button is only visible over HID++, so it has to be diverted. Logi Options
+  would conflict if installed.
+- `rumps.notification` raises from a venv Python (no bundle ID), so all feedback uses a
+  HUD panel (`panel.py`). Auto-closing uses a one-shot `NSTimer`, because `rumps.Timer`
+  fires immediately on start.
+- The app bundle's launcher forks and waits (it does not `exec`) so the Python child is
+  credited to the app for privacy permissions, and exit codes pass through for KeepAlive.
+- The launcher is only rebuilt when its C source changes, since a new binary hash makes
+  macOS ask for permissions again.
+
+## Known limitations
+
+- The key map is ANSI layout; other layouts may map keys differently.
+- Hand edits to `config.toml` need a restart.
+- The **Type shortcut...** dialog is a native alert, not a HUD panel.
+- Quit-stays-quit, the Start at login toggle, a real logout/login and sleep/wake have not
+  been tested thoroughly.
+- `rumps` is old (0.4.0) and the status icon uses its private `_nsapp`.
+
 ## Not yet done
 
 - Gestures (hold the button and move).
+- Reload the config file when it changes.
